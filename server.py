@@ -1,5 +1,3 @@
-print('Hello World')
-
 # Requirements:
 # Respond to requests with following responses:
 
@@ -9,3 +7,32 @@ print('Hello World')
 # 403	Forbidden
 # 404	Not Found
 # 505	HTTP Version Not Supported
+
+from socket import *
+
+HOST = '127.0.0.1' # Loopback address (localhost)
+PORT = 12000
+
+# Socket creation
+serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket.bind((HOST, PORT))
+serverSocket.listen(1)
+
+print ('The server is ready to receive')
+
+while True:
+    # Server waits on client connections
+    connectionSocket, addr = serverSocket.accept()
+
+    # Get client request
+    clientRequest =connectionSocket.recv(1024).decode()
+    print(clientRequest)
+
+    # Send HTTP response
+    serverResponse = 'HTTP/1.1 200 OK\n\nHello World'
+    connectionSocket.sendall(serverResponse.encode())
+    connectionSocket.close()
+
+# Close server socket
+serverSocket.close()
+
