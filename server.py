@@ -22,16 +22,16 @@ print ('The server is ready to receive')
 
 while True:
     # Server waits on client connections
-    connectionSocket, addr = serverSocket.accept()
+    clientSocket, clientAddr = serverSocket.accept()
 
     # Get client request
-    clientRequest =connectionSocket.recv(1024).decode()
+    clientRequest =clientSocket.recv(1024).decode()
     print(clientRequest)
 
     # Send HTTP response
     serverResponse = 'HTTP/1.1 200 OK\n\nHello World'
-    connectionSocket.sendall(serverResponse.encode())
-    connectionSocket.close()
+    clientSocket.sendall(serverResponse.encode())
+    clientSocket.close()
 
 # Close server socket
 serverSocket.close()
