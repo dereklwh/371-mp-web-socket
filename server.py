@@ -16,7 +16,7 @@ PORT = 12000
 # Socket creation
 serverSocket = socket(AF_INET, SOCK_STREAM)
 serverSocket.bind((HOST, PORT))
-serverSocket.listen(1)
+serverSocket.listen(5)
 
 print ('The server is ready to receive')
 
@@ -30,6 +30,7 @@ while True:
 
     # Send HTTP response
     serverResponse = 'HTTP/1.1 200 OK\n\nHello World'
+    print(serverResponse)
     clientSocket.sendall(serverResponse.encode())
     clientSocket.close()
 
