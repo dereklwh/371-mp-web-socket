@@ -26,7 +26,7 @@ while True:
 
     # Get client request
     clientRequest = clientSocket.recv(1024).decode()
-    #print(clientRequest)
+    print(clientRequest)
 
     # Splits headers by line 
     headers = clientRequest.split('\n')
@@ -37,7 +37,7 @@ while True:
     # Takes the path component of the header line
     path = headerComponents[1]
     
-    # Open and display file
+    # Open and display file test.html
     if path == '/test.html':
         fin = open('test.html')
         content = fin.read()
@@ -48,6 +48,7 @@ while True:
 
         print(serverResponse)
     
+    # Try to access non existent file garbage.txt
     if path == '/garbage.txt':
         
         # Send HTTP response 404 Not Found
