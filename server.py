@@ -1,19 +1,9 @@
-# Requirements:
-# Respond to requests with following responses:
-
-# Code	Message
-# 200	OK
-# 304	Not Modified
-# 403	Forbidden
-# 404	Not Found
-# 505	HTTP Version Not Supported
-
 from socket import *
 import os
 import datetime
-from email.utils import parsedate_to_datetime # Allows parsing of HTTP timestamp
+from email.utils import parsedate_to_datetime  # Allows parsing of HTTP timestamp
 
-HOST = '127.0.0.1' # Loopback address (localhost)
+HOST = '127.0.0.1'
 PORT = 12000
 
 STATUS_TEXT = {
@@ -24,6 +14,7 @@ STATUS_TEXT = {
     505: "HTTP Version Not Supported"
 }
 
+# --- Helpers ---
 def get_headers(request):
     lines = request.split('\n')
     return lines
@@ -43,104 +34,78 @@ def get_html_version(request):
         return parts[2]
     return ''
 
-# Socket creation (TCP)
-serverSocket = socket(AF_INET, SOCK_STREAM)
-serverSocket.bind((HOST, PORT))
-serverSocket.listen(5)
-
-print (f'Listening on port {PORT}...')
-
-# assume we are using http version 1.1
-while True:
-    # Server waits on client connections
-    clientSocket, clientAddr = serverSocket.accept()
-
-    # Get client request
-    clientRequest = clientSocket.recv(1024).decode()
-    print(clientRequest)
-    print(get_request_line(clientRequest))
-    html_version = get_html_version(clientRequest)
-
+def get_headers_dict(request):
     headers = get_headers(clientRequest)
-
-    # Splits the items in the first header line
-    headerComponents = headers[0].split(' ')
-
-    # Takes the path component of the header line
-    path = headerComponents[1] if len(headerComponents) > 1 else '/'
-    
-    # Go through each header line except the first
     headerLines = {}
     for header in headers[1:]:
         if ': ' in header:
             key, value = header.split(': ', 1)
             headerLines[key.lower()] = value
+    return headers
 
-    
-    # Try to access server code
-    if path.endswith('.py'):
-        
-        # Send HTTP response 403 Forbidden
-        serverResponse = 'HTTP/1.1 403 Forbidden\n\n'
+# --- Socket setup ---
+serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket.bind((HOST, PORT))
+serverSocket.listen(5)
 
-        print(serverResponse)
-    
-    # Open and display file test.html
-    if path == '/test.html':
-        filepath = '.' + path
+print(f'Listening on port {PORT}...')
 
-        # Check last modified time of file
-        file_ModifiedTime_Original = os.path.getmtime(filepath)
-        file_ModifiedTime = datetime.datetime.fromtimestamp(
-                            file_ModifiedTime_Original, 
-                            tz = datetime.timezone.utc) # Allows for comparison against HTTP timestamp
-        
-        # print(file_ModifiedTime)
+# assume we are using http version 1.1
+while True:
+    clientSocket, clientAddr = serverSocket.accept()
+    clientRequest = clientSocket.recv(1024).decode()
+    print(clientRequest)
 
-        if 'if-modified-since' in headerLines:
-            
-            # Extract HTTP timestamp from request
-            http_fileTimestamp = parsedate_to_datetime(headerLines['if-modified-since'])
+    request_line = get_request_line(clientRequest)
+    print(request_line)
 
-            # File has not been modified since date in request message
-            if file_ModifiedTime <= http_fileTimestamp:
-                
-                # Send HTTP response 304 Not Modified
-                serverResponse = 'HTTP/1.1 304 Not Modified\n\n'    
-            
-        else: 
-            
-            # Open and read contents of requested file
-            fin = open(filepath)
-            content = fin.read()
-            fin.close()
+    html_version = get_html_version(clientRequest)
+    headerComponents = request_line.split(' ')
+    path = headerComponents[1] if len(headerComponents) >= 2 else '/'
+    headers = get_headers_dict(clientRequest)
 
-            # Send HTTP response 200 OK
-            serverResponse = 'HTTP/1.1 200 OK\n\n' + content
-
-        print(serverResponse)
-    
-    # Try to access non existent file garbage.txt , 404 Not Found
-    if path == '/garbage.txt':
-        
-        # Send HTTP response 404 Not Found
-        serverResponse = 'HTTP/1.1 404 Not Found\n\n'
-
-        print(serverResponse)
-    
-        clientSocket.sendall(serverResponse.encode())
-        clientSocket.close()
-
-    # HTTP 505 response
-    # To test, use curl the following command: 
-    # curl --http1.0 http://127.0.0.1:12000/
+    # --- Handle responses ---
     if html_version != 'HTTP/1.1':
-        serverResponse = 'HTTP/1.1 505 {}\n\n'.format(STATUS_TEXT[505])
-        print(serverResponse)
-        clientSocket.sendall(serverResponse.encode())
-        clientSocket.close()
-        continue
+        serverResponse = f'HTTP/1.1 505 {STATUS_TEXT[505]}\n\n'
 
-# Close server socket
+    # TODO: handle forbidden filepaths?
+    elif path.endswith('.py'):
+        serverResponse = f'HTTP/1.1 403 {STATUS_TEXT[403]}\n\n'
+
+    elif path == '/':
+        content = 'Welcome to Derek and Kevin\'s server!'
+        serverResponse = f'HTTP/1.1 200 {STATUS_TEXT[200]}\n\n{content}'
+
+    elif path == '/test.html':
+        filepath = '.' + path
+        if os.path.exists(filepath):
+            file_ModifiedTime = datetime.datetime.fromtimestamp(
+                os.path.getmtime(filepath), tz=datetime.timezone.utc
+            )
+
+            if 'if-modified-since' in headers:
+                http_fileTimestamp = parsedate_to_datetime(headers['if-modified-since'])
+                if file_ModifiedTime <= http_fileTimestamp:
+                    serverResponse = f'HTTP/1.1 304 {STATUS_TEXT[304]}\n\n'
+                else:
+                    with open(filepath) as fin:
+                        content = fin.read()
+                    serverResponse = f'HTTP/1.1 200 {STATUS_TEXT[200]}\n\n{content}'
+            else:
+                with open(filepath) as fin:
+                    content = fin.read()
+                serverResponse = f'HTTP/1.1 200 {STATUS_TEXT[200]}\n\n{content}'
+        else:
+            serverResponse = f'HTTP/1.1 404 {STATUS_TEXT[404]}\n\n'
+
+    elif path == '/garbage.txt':
+        serverResponse = f'HTTP/1.1 404 {STATUS_TEXT[404]}\n\n'
+
+    else:
+        serverResponse = f'HTTP/1.1 404 {STATUS_TEXT[404]}\n\n'
+
+    print(serverResponse)
+    clientSocket.sendall(serverResponse.encode())
+    clientSocket.close()
+
 serverSocket.close()
-
