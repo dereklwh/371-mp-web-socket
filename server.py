@@ -34,6 +34,16 @@ def get_html_version(request):
         return parts[2]
     return ''
 
+# helper function to get HTTP method from request line
+# use this to handle specific methods like GET, POST, etc.
+# for this server, we only care about GET
+def get_method(request):
+    request_line = get_request_line(request)
+    parts = request_line.split(' ')
+    if len(parts) >= 1:
+        return parts[0]
+    return ''
+
 def get_headers_dict(request):
     headers = get_headers(clientRequest)
     headerLines = {}
@@ -66,10 +76,10 @@ while True:
 
     # --- Handle responses ---
     if html_version != 'HTTP/1.1':
+        print('html version', html_version)
         serverResponse = f'HTTP/1.1 505 {STATUS_TEXT[505]}\n\n'
 
-    # TODO: handle forbidden filepaths?
-    elif path.endswith('.py'):
+    elif '..' in path or '/secret/' in path:
         serverResponse = f'HTTP/1.1 403 {STATUS_TEXT[403]}\n\n'
 
     elif path == '/':
