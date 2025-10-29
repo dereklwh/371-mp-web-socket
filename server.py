@@ -55,6 +55,7 @@ def get_headers_dict(request):
             headerLines[key.lower()] = value
     return headerLines
 
+# Gets path from request line
 def get_path(headerComponents):
     if len(headerComponents) >= 2:
         

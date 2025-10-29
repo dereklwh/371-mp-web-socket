@@ -82,16 +82,16 @@ while True:
         originSocket.sendall(clientRequest.encode())
 
         # receive response from origin server
-        # print('Sent request to origin server, waiting for response...')
+        print('Sent request to origin server, waiting for response...')
         while True:
             originResponse = originSocket.recv(4096).decode()
-            print(f'Received response from origin server:\n{originResponse}')
-
             if not originResponse:
                 break
             
+            print(f'Received response from origin server:\n{originResponse}')
             # send response back to client
             clientSocket.sendall(originResponse.encode())
+            
     except Exception as e:
         print('Error connecting to origin server:', e)
     finally:
