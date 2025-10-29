@@ -3,23 +3,57 @@ from socket import *
 PROXY_HOST = '127.0.0.1'
 PROXY_PORT = 8080
 
-def handle_client_connection(clientSocket):
-    request = clientSocket.recv(4096).decode()
-    print(f'Received request:\n{request}')
+ORIGIN_HOST = '127.0.0.1'
+ORIGIN_PORT = 12000
 
-    # Here you would typically parse the request, forward it to the target server,
-    # receive the response, and send it back to the client.
-    # For simplicity, we'll just send a basic HTTP response back.
+# --- Helpers ---
+def get_headers(request):
+    lines = request.split('\n')
+    return lines
 
-    http_response = """\HTTP/1.1 200 OK
-    Content-Type: text/plain
-    Hello from the proxy server!
-    """
-    clientSocket.sendall(http_response.encode())
-    clientSocket.close()
+# helper function to get HTTP request line
+def get_request_line(request):
+    lines = request.split('\r\n')
+    if len(lines) > 0:
+        return lines[0]
+    return ''
 
-    clientSocket, clientAddr = proxySocket.accept()
-    print(f'Accepted connection from {clientAddr}')
+# helper function to get HTTP version from request line
+def get_html_version(request):
+    request_line = get_request_line(request)
+    parts = request_line.split(' ')
+    if len(parts) == 3:
+        return parts[2]
+    return ''
+
+# helper function to get HTTP method from request line
+# use this to handle specific methods like GET, POST, etc.
+# for this server, we only care about GET
+def get_method(request):
+    request_line = get_request_line(request)
+    parts = request_line.split(' ')
+    if len(parts) >= 1:
+        return parts[0]
+    return ''
+
+def get_headers_dict(request):
+    headers = get_headers(clientRequest)
+    headerLines = {}
+    for header in headers[1:]:
+        if ': ' in header:
+            key, value = header.split(': ', 1)
+            headerLines[key.lower()] = value
+    return headers
+
+
+def parse_request_line_for_path(request):
+    request_line = get_request_line(request)
+    parts = request_line.split(' ')
+    if len(parts) == 3:
+        path = parts[1]
+        # get string after 127.0.0.1:12000
+        return path
+    return '/'
 
 # --- Socket setup ---
 proxySocket = socket(AF_INET, SOCK_STREAM)
@@ -28,4 +62,35 @@ proxySocket.listen(5)
 print(f'Proxy server listening on port {PROXY_PORT}...')
 
 while True:
+    clientSocket, clientAddr = proxySocket.accept()
+    print(f'Accepted connection from {clientAddr}')
+    clientRequest = clientSocket.recv(4096).decode()
+    print(f'Received request:\n{clientRequest}')
+
+    request_line = get_request_line(clientRequest)
+    print('Request line: ', request_line)
+
+    processed_request = parse_request_line_for_path(clientRequest)
+    print('Processed request path: ', processed_request)
+
+    # connect to origin server
+    print('Attempting to connect to origin server...')
+    try: 
+        originSocket = socket(AF_INET, SOCK_STREAM)
+        originSocket.connect((ORIGIN_HOST, ORIGIN_PORT))
+        originSocket.sendall(clientRequest.encode())
+
+        # receive response from origin server
+        print('Sent request to origin server, waiting for response...')
+        originResponse = originSocket.recv(4096).decode()
+        print(f'Received response from origin server:\n{originResponse}')
+
+        # send response back to client
+        clientSocket.sendall(originResponse.encode())
+    except Exception as e:
+        print('Error connecting to origin server:', e)
+    finally:
+        originSocket.close()
+        clientSocket.close()
+
 
