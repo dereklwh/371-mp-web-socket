@@ -2,6 +2,7 @@ from socket import *
 import os
 import datetime
 from email.utils import parsedate_to_datetime  # Allows parsing of HTTP timestamp
+from urllib.parse import urlparse # Allows parsing of URLs
 
 HOST = '127.0.0.1'
 PORT = 12000
@@ -47,11 +48,28 @@ def get_method(request):
 def get_headers_dict(request):
     headers = get_headers(clientRequest)
     headerLines = {}
+
     for header in headers[1:]:
         if ': ' in header:
             key, value = header.split(': ', 1)
             headerLines[key.lower()] = value
-    return headers
+    return headerLines
+
+def get_path(headerComponents):
+    if len(headerComponents) >= 2:
+        
+        # request came with a url
+        if 'http://' in headerComponents[1]:
+            parsedUrl = urlparse(headerComponents[1])   # Parses through the URL
+            path = parsedUrl.path                       # Takes the path part of the URL
+
+        # request for obj directly
+        else:
+            path = headerComponents[1]
+    else:
+        return '/'            
+
+    return path
 
 # --- Socket setup ---
 serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -71,7 +89,7 @@ while True:
 
     html_version = get_html_version(clientRequest)
     headerComponents = request_line.split(' ')
-    path = headerComponents[1] if len(headerComponents) >= 2 else '/'
+    path = get_path(headerComponents)
     headers = get_headers_dict(clientRequest)
 
     # --- Handle responses ---

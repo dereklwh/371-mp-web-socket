@@ -39,11 +39,12 @@ def get_method(request):
 def get_headers_dict(request):
     headers = get_headers(clientRequest)
     headerLines = {}
+
     for header in headers[1:]:
         if ': ' in header:
             key, value = header.split(': ', 1)
             headerLines[key.lower()] = value
-    return headers
+    return headerLines
 
 
 def parse_request_line_for_path(request):
@@ -81,12 +82,16 @@ while True:
         originSocket.sendall(clientRequest.encode())
 
         # receive response from origin server
-        print('Sent request to origin server, waiting for response...')
-        originResponse = originSocket.recv(4096).decode()
-        print(f'Received response from origin server:\n{originResponse}')
+        # print('Sent request to origin server, waiting for response...')
+        while True:
+            originResponse = originSocket.recv(4096).decode()
+            print(f'Received response from origin server:\n{originResponse}')
 
-        # send response back to client
-        clientSocket.sendall(originResponse.encode())
+            if not originResponse:
+                break
+            
+            # send response back to client
+            clientSocket.sendall(originResponse.encode())
     except Exception as e:
         print('Error connecting to origin server:', e)
     finally:
