@@ -1,4 +1,6 @@
 from socket import *
+import threading # Allows multiple connections in parallle
+import time # Allows for time related operations (Testing for multithread)
 
 PROXY_HOST = '127.0.0.1'
 PROXY_PORT = 8080
@@ -37,7 +39,7 @@ def get_method(request):
     return ''
 
 def get_headers_dict(request):
-    headers = get_headers(clientRequest)
+    headers = get_headers(request)
     headerLines = {}
 
     for header in headers[1:]:
@@ -56,15 +58,16 @@ def parse_request_line_for_path(request):
         return path
     return '/'
 
-# --- Socket setup ---
-proxySocket = socket(AF_INET, SOCK_STREAM)
-proxySocket.bind((PROXY_HOST, PROXY_PORT))
-proxySocket.listen(5)
-print(f'Proxy server listening on port {PROXY_PORT}...')
+# Handles client requests and origin request/response
+def handle_client(clientSocket, clientAddr, ORIGIN_HOST, ORIGIN_PORT):
+    
+    # Prints start time of current thread
+    start = time.strftime('%H:%M:%S')
+    print(f'[{threading.current_thread().name}] Started {clientAddr} at {start}')
 
-while True:
-    clientSocket, clientAddr = proxySocket.accept()
-    print(f'Accepted connection from {clientAddr}')
+    # Pause 5 secs
+    time.sleep(5)
+
     clientRequest = clientSocket.recv(4096).decode()
     print(f'Received request:\n{clientRequest}')
 
@@ -91,11 +94,32 @@ while True:
             print(f'Received response from origin server:\n{originResponse}')
             # send response back to client
             clientSocket.sendall(originResponse.encode())
-            
+
     except Exception as e:
         print('Error connecting to origin server:', e)
     finally:
         originSocket.close()
         clientSocket.close()
+    
+    # Prints end time of current thread
+    end = time.strftime('%H:%M:%S')
+    print(f'[{threading.current_thread().name}] Ended {clientAddr} at {end}')
+
+
+# --- Socket setup ---
+proxySocket = socket(AF_INET, SOCK_STREAM)
+proxySocket.bind((PROXY_HOST, PROXY_PORT))
+proxySocket.listen(5)
+print(f'Proxy server listening on port {PROXY_PORT}...')
+
+while True:
+    clientSocket, clientAddr = proxySocket.accept()
+    print(f'Accepted connection from {clientAddr}')
+
+    # Added multithread functionality
+    proxyThread = threading.Thread(target=handle_client, args=(clientSocket, clientAddr, ORIGIN_HOST, ORIGIN_PORT))
+    proxyThread.start()
+
+    
 
 

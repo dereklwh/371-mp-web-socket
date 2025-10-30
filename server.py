@@ -3,6 +3,8 @@ import os
 import datetime
 from email.utils import parsedate_to_datetime  # Allows parsing of HTTP timestamp
 from urllib.parse import urlparse # Allows parsing of URLs
+import threading # Allows for multiple connections in parallel
+import time # Allows for time related operations (Testing for multithread)
 
 HOST = '127.0.0.1'
 PORT = 12000
@@ -46,7 +48,7 @@ def get_method(request):
     return ''
 
 def get_headers_dict(request):
-    headers = get_headers(clientRequest)
+    headers = get_headers(request)
     headerLines = {}
 
     for header in headers[1:]:
@@ -72,16 +74,16 @@ def get_path(headerComponents):
 
     return path
 
-# --- Socket setup ---
-serverSocket = socket(AF_INET, SOCK_STREAM)
-serverSocket.bind((HOST, PORT))
-serverSocket.listen(5)
+# Handles client requests
+def handle_client(clientSocket, clientAddr, HOST, PORT):
+    
+    # Prints start time of current thread
+    start = time.strftime('%H:%M:%S')
+    print(f'[{threading.current_thread().name}] Started {clientAddr} at {start}')
 
-print(f'Listening on port {PORT}...')
+    # Pause 5 secs
+    time.sleep(5)
 
-# assume we are using http version 1.1
-while True:
-    clientSocket, clientAddr = serverSocket.accept()
     clientRequest = clientSocket.recv(1024).decode()
     print(clientRequest)
 
@@ -135,6 +137,25 @@ while True:
 
     print(serverResponse)
     clientSocket.sendall(serverResponse.encode())
-    clientSocket.close()
+    clientSocket.close()    
+
+    # Prints end time of current thread
+    end = time.strftime('%H:%M:%S')
+    print(f'[{threading.current_thread().name}] Ended {clientAddr} at {end}')
+
+# --- Socket setup ---
+serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket.bind((HOST, PORT))
+serverSocket.listen(5)
+
+print(f'Listening on port {PORT}...')
+
+# assume we are using http version 1.1
+while True:
+    clientSocket, clientAddr = serverSocket.accept()
+
+    # Added multithread functionality
+    serverThread = threading.Thread(target=handle_client, args=(clientSocket, clientAddr, HOST, PORT))
+    serverThread.start()
 
 serverSocket.close()
