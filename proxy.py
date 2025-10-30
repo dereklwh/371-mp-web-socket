@@ -65,7 +65,7 @@ def handle_client(clientSocket, clientAddr, ORIGIN_HOST, ORIGIN_PORT):
     start = time.strftime('%H:%M:%S')
     print(f'[{threading.current_thread().name}] Started {clientAddr} at {start}')
 
-    # Pause 5 secs
+    # Pause 5 secs (Test for multithread)
     time.sleep(5)
 
     clientRequest = clientSocket.recv(4096).decode()
