@@ -11,3 +11,5 @@ while True:
     sentence = data.decode()
     capitalized = sentence.upper().encode()
     serverSocket.sendto(capitalized, addr)
+    print(f"Processed request from {addr}")
+    
