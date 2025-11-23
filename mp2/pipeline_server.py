@@ -1,12 +1,11 @@
 from socket import *
 
-class ReceiverState:
-     CONNECTED = False
-     EXPECTED_SEQ = None
-
 HOST = '127.0.0.1'
 PORT = 12000
 
+class ReceiverState:
+     CONNECTED = False
+     EXPECTED_SEQ = None
 
 # helper function to make custom packet
 def make_packet(seq, ack, rwnd, flags, payload: bytes) -> bytes:
@@ -49,7 +48,6 @@ def handle_handshake(socket, pkt, addr):
 
     
 def main():
-
      serverSocket = socket(AF_INET, SOCK_DGRAM)
      serverSocket.bind((HOST, PORT))
      print('Server ready')
@@ -63,7 +61,7 @@ def main():
           if not ReceiverState.CONNECTED:
               handle_handshake(serverSocket, pkt, addr)
           
-
+          # After connection established, process data packets
           if pkt['flags'] == "DATA" and ReceiverState.CONNECTED:
                sentence = data.decode()
                capitalized = sentence.upper().encode()

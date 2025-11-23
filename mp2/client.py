@@ -1,5 +1,8 @@
 from socket import *
 
+HOST = '127.0.0.1'
+PORT = 12000
+
 class SenderState:
     CLOSED = 0
     SYN_SENT = 1
@@ -76,7 +79,7 @@ def perform_handshake(client, server_addr):
 def main():
     # Client is used to send a packet to the server and receive a response
     client = socket(AF_INET, SOCK_DGRAM)
-    server_addr = ('127.0.0.1', 12000)
+    server_addr = (HOST, PORT)
 
     # need to implement 3 way handshake:
     next_seq = perform_handshake(client, server_addr)
