@@ -56,18 +56,32 @@ def main():
           data, addr = serverSocket.recvfrom(2048)  # receive packet + client address
           pkt = parse_packet(data)
           print("expected seq:", ReceiverState.EXPECTED_SEQ)
+          print("Received packet:", pkt)
 
           # receive 3 way handshake to establish connection
           if not ReceiverState.CONNECTED:
               handle_handshake(serverSocket, pkt, addr)
           
-          # After connection established, process data packets
+          # After connection established, process data packets, send ACKs back
           if pkt['flags'] == "DATA" and ReceiverState.CONNECTED:
-               sentence = data.decode()
-               capitalized = sentence.upper().encode()
-               serverSocket.sendto(capitalized, addr)
-               print(f"Processed request from {addr}")
-               print(f"data: {data}")
+               # check if seq is as expected
+               if pkt['seq'] != ReceiverState.EXPECTED_SEQ:
+                    print(f"Out of order packet from {addr}. Expected seq {ReceiverState.EXPECTED_SEQ}, got {pkt['seq']}. Discarding.")
+                    continue
+               # update expected seq
+               ReceiverState.EXPECTED_SEQ += 1
+
+               # send ACK back in order
+               ack_packet = make_packet(
+                    seq=0,
+                    ack=ReceiverState.EXPECTED_SEQ,
+                    rwnd=32,
+                    flags="ACK",
+                    payload=b""
+               )
+               serverSocket.sendto(ack_packet, addr)
+               print(f"Sent ACK for seq {pkt['seq'] + len(pkt['payload'])} to {addr}")
+
 
 if __name__ == "__main__":
     main()

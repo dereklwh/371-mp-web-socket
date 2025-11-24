@@ -81,17 +81,65 @@ def main():
     client = socket(AF_INET, SOCK_DGRAM)
     server_addr = (HOST, PORT)
 
-    # need to implement 3 way handshake:
+    # First, perform three-way handshake to establish connection
     next_seq = perform_handshake(client, server_addr)
 
     # then simulate sending multiple packets with payload in accordance to rwnd/cwnd
     # client handles cwnd
-    if SenderState.CONNECTED == True:
-        print("Connection established, sending data...")
-        pkt = make_packet(seq=0, ack=0, rwnd=32, flags="DATA", payload=b"hi my name is derekkk")
+    if SenderState.CONNECTED == False:
+        print("Handshake failed, cannot send data.")
+        return
+
+    # Once connection is established, send data packets
+    app_data = b"hi my name is derekkk" * 20
+    MAX_PAYLOAD_SIZE = 20  # max payload size per packet
+
+    segments = [
+        app_data[i:i + MAX_PAYLOAD_SIZE]
+        for i in range(0, len(app_data), MAX_PAYLOAD_SIZE)
+    ]
+    print("Data to send segmented into packets:", len(segments))
+
+    #TODO: implement go back n and aimd here
+    # States for go back n and aimd
+    seg_index = 0
+
+    while seg_index < len(segments):
+        # send packets according to cwnd
+        print("Sending data packets...")
+        payload = segments[seg_index]
+        pkt = make_packet(
+            seq=next_seq,
+            ack=0,
+            rwnd=32,
+            flags="DATA",
+            payload=payload
+        )
         client.sendto(pkt, server_addr)
+        print(f"Sent packet with seq={next_seq}, payload={payload}")
+
+        seg_index += 1
+        next_seq += 1
+        print("sequence number updated to:", next_seq)
+
+        # wait for ACK
         data, addr = client.recvfrom(2048)
-        print("Server replied:", data.decode())
+        ack_pkt = parse_packet(data)
+        print("Received ACK packet:", ack_pkt)
+        if ack_pkt['flags'] == "ACK":
+            print(f"ACK received for seq={ack_pkt['ack']}")
+        else:
+            print("Unexpected packet received, expected ACK.")
+            return
+    # After sending all data packets, close the connection
+    print("All data packets sent and acknowledged.")
+
+
+    # print("Connection established, sending data...")
+    # pkt = make_packet(seq=0, ack=0, rwnd=32, flags="DATA", payload=b"hi my name is derekkk")
+    # client.sendto(pkt, server_addr)
+    # data, addr = client.recvfrom(2048)
+    # print("Server replied:", data.decode())
 
 if __name__ == "__main__":
     main()
