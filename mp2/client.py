@@ -2,7 +2,7 @@ from socket import *
 import time
 
 HOST = '127.0.0.1'
-PORT = 12000
+PORT = 8080
 
 RTO = 3.0   # timeout for retransmission in seconds
 DUPE_ACK_THRESH = 3     # How many duplicate acks before retransmission
@@ -98,7 +98,10 @@ def main():
         return
 
     # Once connection is established, send data packets
-    app_data = b"hi my name is derekkk" * 20
+    app_data = b"""_4&@=EFyR=R,?Q:3q&ir7rV22$7yE(
+                #uFJ]H*Kjk57*21K=CAQ/t6)S?Ff4L
+                JrU}E/md[(,Aq6d/DhQD3/3{3XRa]r
+                """ * 20
     MAX_PAYLOAD_SIZE = 20  # max payload size per packet
 
     segments = [
@@ -125,6 +128,7 @@ def main():
 
     # Loop until all ACKs have been received for all segments
     while send_base < next_seq + total_segments:
+        print(f"============================ DATA PACKET {send_base } of {total_segments} ============================")
         
         # Send up to min(cwnd, rwnd) 
         window_limit = send_base + min(cwnd, rwnd)
@@ -160,7 +164,7 @@ def main():
 
         if received:
             print("Received packet:", received)
-            rwnd = max(0, received['rwnd'])     # update rwnd 
+            rwnd = max(0, received['rwnd'])     # update rwnd
 
             # Handle cumulative ACK
             if received['flags'] == "ACK":

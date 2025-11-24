@@ -1,12 +1,13 @@
 from socket import *
+import random
 
 HOST = '127.0.0.1'
-PORT = 12000
+PORT = 8080
 
 class ReceiverState:
      CONNECTED = False
      EXPECTED_SEQ = None
-     BUFFER_SIZE = 32    # Receiver advertised window (for flow control)
+     BUFFER_SIZE = 5    # Receiver advertised window (for flow control)
      USED_BUFFER = 0     # How much data is stored
 
 # helper function to make custom packet
@@ -45,8 +46,9 @@ def handle_handshake(socket, pkt, addr):
      
      # wait for ACK to establish connection
      if pkt['flags'] == "ACK" and pkt['ack'] == ReceiverState.EXPECTED_SEQ:
-          print(f"Received ACK from {addr}, connection established")
+          print(f"Received ACK from {addr}, connection established!!")
           ReceiverState.CONNECTED = True
+          ReceiverState.EXPECTED_SEQ = pkt['seq']
 
 #TODO: implement checksum
 def main():
@@ -62,7 +64,7 @@ def main():
                print("Malformed packet, ignoring:", e)
                continue
           
-          print("============================================================================")
+          print("===================================================================")
           print("(1) Received packet:", pkt)
 
           # receive 3 way handshake to establish connection
@@ -72,7 +74,7 @@ def main():
           
           # After connection established, process data packets, send ACKs back
           if pkt['flags'] == "DATA" and ReceiverState.CONNECTED:
-               # Flow COntrol: drop packet if receiver buffer is full
+               # Flow Control: drop packet if receiver buffer is full
                if ReceiverState.USED_BUFFER >= ReceiverState.BUFFER_SIZE:
                     print("Receiver full - sending duplicate ACK")
                     dupe_ack = make_packet(
@@ -102,11 +104,13 @@ def main():
                     continue
                
                # Accept packet
-               ReceiverState.USED_BUFFER += len(pkt["payload"])
+               ReceiverState.USED_BUFFER += 1
                print(f"Accepted in order packet seq {pkt['seq']}")
+               print("BUFFER USED = ", ReceiverState.USED_BUFFER, "/", ReceiverState.BUFFER_SIZE)
 
-               # Simulate consumming data packet
-               ReceiverState.USED_BUFFER = max(0, ReceiverState.USED_BUFFER - len(pkt["payload"]))
+               # Simulate consumming data packet slower than receiver
+               if random.random() < 0.7:  # 70% chance to process data
+                    ReceiverState.USED_BUFFER = max(0, ReceiverState.USED_BUFFER - 1)
 
                # update expected seq
                ReceiverState.EXPECTED_SEQ += 1
