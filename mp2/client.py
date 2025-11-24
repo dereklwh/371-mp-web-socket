@@ -104,10 +104,11 @@ def main():
     #TODO: implement go back n and aimd here
     # States for go back n and aimd
     seg_index = 0
+    cwnd = 1  # initial congestion window size
 
     while seg_index < len(segments):
         # send packets according to cwnd
-        print("Sending data packets...")
+        print(f"============================ DATA PACKET {seg_index + 1} of {len(segments)} ============================")
         payload = segments[seg_index]
         pkt = make_packet(
             seq=next_seq,
@@ -117,18 +118,19 @@ def main():
             payload=payload
         )
         client.sendto(pkt, server_addr)
-        print(f"Sent packet with seq={next_seq}, payload={payload}")
+        print(f"(1) Sent packet with seq={next_seq}, payload={payload}")
 
         seg_index += 1
         next_seq += 1
-        print("sequence number updated to:", next_seq)
 
         # wait for ACK
         data, addr = client.recvfrom(2048)
         ack_pkt = parse_packet(data)
-        print("Received ACK packet:", ack_pkt)
+        print("(2) Received ACK packet:", ack_pkt)
         if ack_pkt['flags'] == "ACK":
             print(f"ACK received for seq={ack_pkt['ack']}")
+            cwnd += 1 # AIMD not fully impented yet, TODO: dynamic adjust window size
+            print("(3) [AIMD] Congestion window increased to:", cwnd)
         else:
             print("Unexpected packet received, expected ACK.")
             return

@@ -55,8 +55,8 @@ def main():
      while True:
           data, addr = serverSocket.recvfrom(2048)  # receive packet + client address
           pkt = parse_packet(data)
-          print("expected seq:", ReceiverState.EXPECTED_SEQ)
-          print("Received packet:", pkt)
+          print("============================================================================")
+          print("(1) Received packet:", pkt)
 
           # receive 3 way handshake to establish connection
           if not ReceiverState.CONNECTED:
@@ -80,7 +80,8 @@ def main():
                     payload=b""
                )
                serverSocket.sendto(ack_packet, addr)
-               print(f"Sent ACK for seq {pkt['seq'] + len(pkt['payload'])} to {addr}")
+               print(f"(2) Sent ACK for seq {pkt['seq']} to {addr}")
+          # end of loop
 
 
 if __name__ == "__main__":
