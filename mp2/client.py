@@ -39,6 +39,7 @@ def perform_handshake(client, server_addr):
     3) ACK
     """
     print("Performing three-way handshake...")
+    client.settimeout(2.0)  # Longer timeout for handshake
     # Step 1: Send SYN
     syn_seq = 0
     syn_packet = make_packet(
@@ -85,7 +86,7 @@ def perform_handshake(client, server_addr):
 def main():
     # Client is used to send a packet to the server and receive a response
     client = socket(AF_INET, SOCK_DGRAM)
-    client.settimeout(0.1)
+    client.settimeout(0.2)
 
     server_addr = (HOST, PORT)
 
@@ -115,25 +116,46 @@ def main():
     send_base = next_seq    # First unAcked Packet
     next_seq_num = next_seq # next packet that can be sent
     total_segments = len(segments)
+    final_seq = next_seq = total_segments
 
     cwnd = 1
     rwnd = 32
     sent_times = {}     # To track send time
     buffered = {}       # seq -> payload
     dupe_ack_count = 0
+    last_ack = send_base
 
     print(f"Total segments to send: {total_segments} (seq will range from {send_base} to {send_base + total_segments - 1})")
 
     i = 0   # index for next unsent segment
+    iterations_without_progress = 0
+    MAX_ITER_WITHOUT_PROGRESS = 50
 
     # Loop until all ACKs have been received for all segments
-    while send_base < next_seq + total_segments:
-        print(f"============================ DATA PACKET {send_base } of {total_segments} ============================")
+    while send_base < final_seq:
+        # print(f"============================ DATA PACKET {send_base } of {total_segments} ============================")
+        print("\n" + "="*70)
+        print(f"LOOP: send_base={send_base}, next_seq_num={next_seq_num}, cwnd={cwnd}, rwnd={rwnd}")
+        print(f"Buffered packets: {list(buffered.keys())}")
+        print("="*70)
+
+        # Check if done
+        if send_base >= final_seq:
+            print("[INFO] All packets ACKed! Exiting...")
+            break
+        
+        # Track progress
+        old_send_base = send_base
         
         # Send up to min(cwnd, rwnd) 
-        window_limit = send_base + min(cwnd, rwnd)
+        effective_window = min(cwnd, rwnd)
+        window_limit = send_base + effective_window
+
+        print(f"[WINDOW] Effective window = min(cwnd={cwnd}, rwnd={rwnd} = {effective_window})")
+        print(f"[WINDOW] Can send up to seq {window_limit - 1}")
 
         # Send packets within window limit
+        pkts_sent_this_round = 0
         while i < total_segments and next_seq_num < window_limit:
             
             payload = segments[i]
@@ -146,7 +168,7 @@ def main():
             )
 
             client.sendto(pkt, server_addr)
-            print(f"Sent DATA seq = {next_seq_num}")
+            print(f"[SEND] Sent DATA seq = {next_seq_num}")
 
             buffered[next_seq_num] = payload
             sent_times[next_seq_num] = time.time()
@@ -154,17 +176,59 @@ def main():
             # Move to next item
             next_seq_num += 1
             i += 1
+            pkts_sent_this_round += 1
 
+        if pkts_sent_this_round == 0:
+            if effective_window == 0:
+                print("[FLOW CONTROL] Effective Window is 0, waiting for receiver to process data...")
+            elif i >= total_segments:
+                print("[INFO] All packets sent, waiting for final ACKs...")
+            else:
+                print("[INFO] No packets to send (all data sent, waiting for ACKs)")
+        
+        # Handle Timeouts
+        if send_base in sent_times:
+            if time.time() - sent_times[send_base] > RTO:
+                print(f"[TIMEOUT] Timeout for send_base={send_base}. Retransmitting all unACKed packets...")
+
+                # Multiplicative Decrease  (AIMD)
+                cwnd = max(1, cwnd // 2)
+                print(f"[AIMD] cwnd decreased to {cwnd}")
+
+                # Retransmit all segment from send base to next_seq_num - 1
+                for seq in range(send_base, next_seq_num):
+                    if seq in buffered:
+                        pkt = make_packet(
+                            seq = seq,
+                            ack = 0,
+                            rwnd = rwnd,
+                            flags = "DATA",
+                            payload = buffered[seq]
+                        )
+                        client.sendto(pkt, server_addr)
+                        sent_times[seq] = time.time()   # reset timers for each packet
+                        print(f"[RETRANSMIT] Retransmitted seq = {seq}")
+
+                dupe_ack_count = 0  # Reset dupe ACK count after time out
+                continue
+       
         # Receiving ACKs
         try:
             data, addr = client.recvfrom(2048)
             received = parse_packet(data)
         except timeout:
-            received = None
+            # No ACK received, continue loop
+            # Dont force new packets when receiver buffer is full
+            if rwnd == 0 and len(buffered) > 0:
+                print("[FLOW CONTROL] rwnd = 0, waiting for receiver to process...")
+            elif len(buffered) > 0:
+                print("[FLOW CONTROL] No ACK received, continuing...")
+            continue
 
         if received:
-            print("Received packet:", received)
+            print(f"[RECV] Received packet: {received}")
             rwnd = max(0, received['rwnd'])     # update rwnd
+            print(f"[FLOW CONTROL] Updated rwnd = {rwnd}")
 
             # Handle cumulative ACK
             if received['flags'] == "ACK":
@@ -172,30 +236,41 @@ def main():
 
                 # If ACK acknowledges new data
                 if ack_num > send_base:
-                    print(f"New ACK {ack_num} (was send_base={send_base})")
+                    print(f"[ACK] New ACK {ack_num} (was send_base={send_base})")
 
                     # remove buffered segments that are acked
                     remove_seqs = [s for s in buffered.keys() if s < ack_num]
                     for s in remove_seqs:
                         buffered.pop(s, None)
                         sent_times.pop(s, None)
+                    print(f"[ACK] Removed {len(remove_seqs)} ACKed packets from buffer")
 
                     # slide window
                     send_base = ack_num
                     dupe_ack_count = 0
+                    last_ack = ack_num
 
                     # Additive Increase (AIMD)
                     cwnd += 1
                     print(f"[AIMD] cwnd increased to {cwnd}")
+
+                    # Check if done after ACK
+                    if send_base >= final_seq:
+                        print(f"[SUCCESS] send_base({send_base}) reached final_seq ({final_seq})")
+                        break
+                    
                 # Handling dupe ACKs
-                elif ack_num == send_base:
+                elif ack_num == last_ack:
                     dupe_ack_count += 1
-                    print(f"Duplicate ACK #{dupe_ack_count} for {ack_num}")
+                    print(f"[ACK] Duplicate ACK #{dupe_ack_count} for {ack_num}")
+                    
                     if dupe_ack_count >= DUPE_ACK_THRESH:
-                        print("Fast retransmit triggered: retransmitting send_base segment")
+                        print(f"\n[FAST RETRANSMIT] {DUPE_ACK_THRESH} duplicate ACKs detected: retransmitting send_base = {send_base}")
 
                         # Multiplicative Decrease (AIMD)
                         cwnd = max(1, cwnd // 2)
+                        print(f"[AIMD] cwnd decreased to {cwnd}")
+
                         # Retransmit base segment
                         if send_base in buffered:
                             pkt = make_packet(
@@ -207,34 +282,31 @@ def main():
                             )
                             client.sendto(pkt, server_addr)
                             sent_times[send_base] = time.time()     # Reset time for send_base segment
+                            print(f"[RETRANSMIT] Retransmitted seq = {send_base}")
+
                         dupe_ack_count = 0  # Reset dupe ACK count
 
-            # Handle Timeouts
-            if send_base in sent_times:
-                if time.time() - sent_times[send_base] > RTO:
-                    print(f"Timeout for send_base={send_base}. Retransmitting all unACKed packets...")
+        # Checking progress
+        if send_base == old_send_base:
+            iterations_without_progress += 1
+            if iterations_without_progress >= MAX_ITER_WITHOUT_PROGRESS:
+                print("[ERROR] No progress for 50 iterations")
+                print(f"[ERROR] send_base={send_base}, buffered packets={list(buffered.keys())}")
+                print(f"[ERROR] rwnd={rwnd}, cwnd={cwnd}")
+                print("[ERROR] Possible deadlock, exiting...")
+                break
+            else:
+                iterations_without_progress = 0
 
-                    # Multiplicative Decrease  (AIMD)
-                    cwnd = max(1, cwnd // 2)
-                    # Retransmit all segment from send base to next_seq_num - 1
-                    for seq in range(send_base, next_seq_num):
-                        if seq in buffered:
-                            pkt = make_packet(
-                                seq = seq,
-                                ack = 0,
-                                rwnd = rwnd,
-                                flags = "DATA",
-                                payload = buffered[seq]
-                            )
-                            client.sendto(pkt, server_addr)
-                            sent_times[seq] = time.time()   # reset timers for each packet
-                    
-                    dupe_ack_count = 0  # Reset dupe ACK count after time out
-            
-            # Wait for window update when rwnd == 0
-            if rwnd == 0:
-                time.sleep(0.05)
-
+    if send_base >= final_seq:
+        print("\n" + "="*70)
+        print("[SUCCESS] All data packets send and ACKed")
+        print("="*70)
+    else:
+        print("\n" + "="*70)
+        print("[ERROR] Not all packets ACKed")
+        print(f"Expected final send_base: {next_seq + total_segments} Actual send_base: {send_base}")
+        print("="*70)
 
 
     # seg_index = 0
@@ -270,7 +342,9 @@ def main():
     #         return
         
     # After sending all data packets, close the connection
-    print("All data packets sent and acknowledged.")
-
+    # print("\n" + "="*70)
+    # print("All data packets sent and acknowledged.")
+    # print("="*70)
+    
 if __name__ == "__main__":
     main()
