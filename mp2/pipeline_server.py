@@ -46,7 +46,7 @@ def handle_handshake(socket, pkt, addr):
           print(f"Received ACK from {addr}, connection established")
           ReceiverState.CONNECTED = True
 
-    
+#TODO: implement rwnd handling and checksum
 def main():
      serverSocket = socket(AF_INET, SOCK_DGRAM)
      serverSocket.bind((HOST, PORT))

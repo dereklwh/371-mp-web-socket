@@ -76,6 +76,7 @@ def perform_handshake(client, server_addr):
     # return the next sequence number
     return syn_seq + 1
 
+#TODO: implement checksum
 def main():
     # Client is used to send a packet to the server and receive a response
     client = socket(AF_INET, SOCK_DGRAM)
@@ -131,15 +132,9 @@ def main():
         else:
             print("Unexpected packet received, expected ACK.")
             return
+        
     # After sending all data packets, close the connection
     print("All data packets sent and acknowledged.")
-
-
-    # print("Connection established, sending data...")
-    # pkt = make_packet(seq=0, ack=0, rwnd=32, flags="DATA", payload=b"hi my name is derekkk")
-    # client.sendto(pkt, server_addr)
-    # data, addr = client.recvfrom(2048)
-    # print("Server replied:", data.decode())
 
 if __name__ == "__main__":
     main()
