@@ -6,6 +6,11 @@ import time
 HOST = '127.0.0.1'
 PORT = 8080
 
+# Testing
+# Set to True to simulate packet corruption
+SIMULATE_CORRUPT = True
+CORRUPTION_RATE = 0.1   # 10% of packets corrupted
+
 class ReceiverState:
      CONNECTED = False
      EXPECTED_SEQ = None
@@ -28,6 +33,17 @@ def make_packet(seq, ack, rwnd, flags, payload: bytes) -> bytes:
      # Rebuild header with actual checksum
      header = f"{seq}|{ack}|{rwnd}|{flags}|{checksum}|".encode()
      final_packet = header + payload
+
+     # Testing checksum functionality by intentionally corrupting packets
+     if SIMULATE_CORRUPT and random.random() < CORRUPTION_RATE:
+          print("[CORRUPT] Simulating packet corruption...")
+
+          # Flip a random bit in payload
+          if len(payload) > 0:
+               corrupt_pos = random.randint(0, len(final_packet) - 1)
+               packet_list = bytearray(final_packet)
+               packet_list[corrupt_pos] ^= 0xFF    # Flip all bits in one byte
+               final_packet = bytes(packet_list)
 
      return final_packet
 

@@ -10,7 +10,7 @@ DUPE_ACK_THRESH = 3     # How many duplicate acks before retransmission
 
 # Testing
 # Set to True to simulate packet corruption
-SIMULATE_CORRUPT = False
+SIMULATE_CORRUPT = True
 CORRUPTION_RATE = 0.1   # 10% of packets corrupted
 
 
