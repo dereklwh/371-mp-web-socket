@@ -1,11 +1,18 @@
 from socket import *
 import time
+import random
 
 HOST = '127.0.0.1'
 PORT = 8080
 
 RTO = 3.0   # timeout for retransmission in seconds
 DUPE_ACK_THRESH = 3     # How many duplicate acks before retransmission
+
+# Testing
+# Set to True to simulate packet corruption
+SIMULATE_CORRUPT = False
+CORRUPTION_RATE = 0.1   # 10% of packets corrupted
+
 
 class SenderState:
     CLOSED = 0
@@ -14,20 +21,57 @@ class SenderState:
 
 # helper function to make custom packet
 def make_packet(seq, ack, rwnd, flags, payload: bytes) -> bytes:
-    header = f"{seq}|{ack}|{rwnd}|{flags}|".encode()
-    return header + payload
+    # Create header with placeholder checksum = 0
+    header = f"{seq}|{ack}|{rwnd}|{flags}|0|".encode()
+    temp_packet = header + payload
+
+    # Calculate checksum
+    checksum = checksum_calc(temp_packet)
+
+    # Rebuild header with actual checksum
+    header = f"{seq}|{ack}|{rwnd}|{flags}|{checksum}|".encode()
+    final_packet = header + payload
+
+    # Testing checksum functionality by intentionally corrupting packets
+    if SIMULATE_CORRUPT and random.random() < CORRUPTION_RATE:
+        print("[CORRUPT] Simulating packet corruption...")
+
+        # Flip a random bit in payload
+        if len(payload) > 0:
+            corrupt_pos = random.randint(0, len(final_packet) - 1)
+            packet_list = bytearray(final_packet)
+            packet_list[corrupt_pos] ^= 0xFF    # Flip all bits in one byte
+            final_packet = bytes(packet_list)
+
+    return final_packet
 
 def parse_packet(packet: bytes) -> dict:
-    header, payload = packet.split(b'|', 4)[:4], packet.split(b'|', 4)[4]
-    seq = int(header[0])
-    ack = int(header[1])
-    rwnd = int(header[2])
-    flags = header[3].decode()
+    # Parse packet and verify checksum
+    parts = packet.split(b'|', 5)
+
+    if len(parts) < 5:
+        raise ValueError("Malformed packet: not enough fields")
+    
+    try: 
+        seq = int(parts[0])
+        ack = int(parts[1])
+        rwnd = int(parts[2])
+        flags = parts[3].decode()
+        checksum = int(parts[4])
+        payload = parts[5] if len(parts) > 5 else b''
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"Malformed packet: {e}")
+    
+    # Verify checksum
+    if not verify_checksum(packet, checksum):
+        raise ValueError("[ERROR] Checksum verification failed")
+    
     return {
         'seq': seq,
         'ack': ack,
         'rwnd': rwnd,
         'flags': flags,
+        'checksum': checksum,
         'payload': payload
     }
 
@@ -40,6 +84,7 @@ def perform_handshake(client, server_addr):
     """
     print("Performing three-way handshake...")
     client.settimeout(2.0)  # Longer timeout for handshake
+    
     # Step 1: Send SYN
     syn_seq = 0
     syn_packet = make_packet(
@@ -53,15 +98,22 @@ def perform_handshake(client, server_addr):
 
     # Step 2: Receive SYN-ACK
     while True:
-        data, addr = client.recvfrom(2048)
-        pkt = parse_packet(data)
-        print("Received packet:", pkt)
-        if pkt['flags'] == "SYN-ACK":
-            print("Received SYN-ACK from server.")
-            break
-        else:
-            print("Unexpected packet, waiting for SYN-ACK...")
-    
+
+        try:
+            data, addr = client.recvfrom(2048)
+            pkt = parse_packet(data)
+            print("Received packet:", pkt)
+            if pkt['flags'] == "SYN-ACK":
+                print("Received SYN-ACK from server.")
+                break
+        except ValueError as e:
+            print(f"[ERROR] Checksum error during handshake: {e}")
+            continue
+        except timeout:
+            print("Timeout waiting for SYN-ACK, retrying...")
+            client.sendto(syn_packet, server_addr)
+            continue
+        
     # Step 3: Send ACK
     ack_packet = make_packet(
         seq=syn_seq + 1,
@@ -82,7 +134,49 @@ def perform_handshake(client, server_addr):
     # return the next sequence number
     return syn_seq + 1
 
-#TODO: implement checksum
+def checksum_calc(data: bytes) -> int:
+     # Caculate simple checksum by summing all bytes
+     checksum = 0
+
+     # Process bytes into pairs
+     for i in range(0, len(data), 2):
+          if i + 1 < len(data):
+               # Combine 2 bytes into 16bit word
+               word = (data[i] << 8) + data[i + 1]
+          else:
+               # Pad odd number of bytes with 0
+               word = data[i] << 8
+          
+          checksum += word
+
+          # Carry around addition
+          checksum = (checksum & 0xFFFF) + (checksum >> 16)
+
+     # One's complement
+     checksum = ~checksum & 0xFFFF
+
+     return checksum
+
+def verify_checksum(data: bytes, expected_checksum: int) -> bool:
+     # Verify packet checksum by recreating packet with checksum = 0
+     # calculating checksum and comparing
+     parts = data.split(b'|', 5)
+     if len(parts) < 5:
+          return False
+     
+     # Rebuild packet w/ checksum = 0
+     no_checksum_header = b'|'.join(parts[:4]) + b'|0|'
+     if len(parts) > 5:
+          no_checksum_pkt = no_checksum_header + parts[5]
+     else:
+          no_checksum_pkt = no_checksum_header
+
+     # Calculate checksum
+     calculated_checksum = checksum_calc(no_checksum_pkt)
+
+     # Compare and return
+     return calculated_checksum == expected_checksum
+
 def main():
     # Client is used to send a packet to the server and receive a response
     client = socket(AF_INET, SOCK_DGRAM)
@@ -91,8 +185,12 @@ def main():
     server_addr = (HOST, PORT)
 
     # First, perform three-way handshake to establish connection
-    next_seq = perform_handshake(client, server_addr)
-
+    try:
+        next_seq = perform_handshake(client, server_addr)
+    except Exception as e:
+        print(f"Handshake failed: {e}")
+        return
+    
     # then simulate sending multiple packets with payload in accordance to rwnd/cwnd
     if SenderState.CONNECTED == False:
         print("Handshake failed, cannot send data.")
@@ -111,12 +209,11 @@ def main():
     ]
     print("Data to send segmented into packets:", len(segments))
 
-    #TODO: implement go back n and aimd here
     # Sliding window variables
     send_base = next_seq    # First unAcked Packet
     next_seq_num = next_seq # next packet that can be sent
     total_segments = len(segments)
-    final_seq = next_seq = total_segments
+    final_seq = next_seq + total_segments
 
     cwnd = 1
     rwnd = 32
@@ -125,11 +222,17 @@ def main():
     dupe_ack_count = 0
     last_ack = send_base
 
-    print(f"Total segments to send: {total_segments} (seq will range from {send_base} to {send_base + total_segments - 1})")
+    print(f"Total segments to send: {total_segments} (seq will range from {send_base} to {final_seq - 1})")
 
     i = 0   # index for next unsent segment
     iterations_without_progress = 0
     MAX_ITER_WITHOUT_PROGRESS = 50
+
+    # Stats
+    pkts_sent = 0
+    pkts_retransmitted = 0
+    corrupted_acks = 0
+    acks_received = 0
 
     # Loop until all ACKs have been received for all segments
     while send_base < final_seq:
@@ -151,7 +254,7 @@ def main():
         effective_window = min(cwnd, rwnd)
         window_limit = send_base + effective_window
 
-        print(f"[WINDOW] Effective window = min(cwnd={cwnd}, rwnd={rwnd} = {effective_window})")
+        print(f"[WINDOW] Effective window = min(cwnd={cwnd}, rwnd={rwnd}) = {effective_window}")
         print(f"[WINDOW] Can send up to seq {window_limit - 1}")
 
         # Send packets within window limit
@@ -168,6 +271,7 @@ def main():
             )
 
             client.sendto(pkt, server_addr)
+            pkts_sent += 1
             print(f"[SEND] Sent DATA seq = {next_seq_num}")
 
             buffered[next_seq_num] = payload
@@ -207,6 +311,7 @@ def main():
                         )
                         client.sendto(pkt, server_addr)
                         sent_times[seq] = time.time()   # reset timers for each packet
+                        pkts_retransmitted += 1
                         print(f"[RETRANSMIT] Retransmitted seq = {seq}")
 
                 dupe_ack_count = 0  # Reset dupe ACK count after time out
@@ -215,14 +320,20 @@ def main():
         # Receiving ACKs
         try:
             data, addr = client.recvfrom(2048)
-            received = parse_packet(data)
+            
+            try:
+                received = parse_packet(data)
+                acks_received += 1
+            except ValueError as e:
+                print(f"[ERROR] {e} - ignoring corrupted ACK")
+                corrupted_acks += 1
+                continue 
+            
         except timeout:
             # No ACK received, continue loop
             # Dont force new packets when receiver buffer is full
             if rwnd == 0 and len(buffered) > 0:
                 print("[FLOW CONTROL] rwnd = 0, waiting for receiver to process...")
-            elif len(buffered) > 0:
-                print("[FLOW CONTROL] No ACK received, continuing...")
             continue
 
         if received:
@@ -282,6 +393,7 @@ def main():
                             )
                             client.sendto(pkt, server_addr)
                             sent_times[send_base] = time.time()     # Reset time for send_base segment
+                            pkts_retransmitted += 1
                             print(f"[RETRANSMIT] Retransmitted seq = {send_base}")
 
                         dupe_ack_count = 0  # Reset dupe ACK count
@@ -295,9 +407,10 @@ def main():
                 print(f"[ERROR] rwnd={rwnd}, cwnd={cwnd}")
                 print("[ERROR] Possible deadlock, exiting...")
                 break
-            else:
-                iterations_without_progress = 0
+        else:
+            iterations_without_progress = 0
 
+    # Final Stats
     if send_base >= final_seq:
         print("\n" + "="*70)
         print("[SUCCESS] All data packets send and ACKed")
@@ -307,6 +420,13 @@ def main():
         print("[ERROR] Not all packets ACKed")
         print(f"Expected final send_base: {next_seq + total_segments} Actual send_base: {send_base}")
         print("="*70)
+
+    print(f"\n[STATS]")
+    print(f"    Packets sent: {pkts_sent}")
+    print(f"    Packets retransmitted: {pkts_retransmitted}")
+    print(f"    Corrupted ACKs detected: {corrupted_acks}")
+    print(f"    ACKs received: {acks_received}")
+    print("="*70)
 
 
     # seg_index = 0

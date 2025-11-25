@@ -18,22 +18,49 @@ class ReceiverState:
 
 # helper function to make custom packet
 def make_packet(seq, ack, rwnd, flags, payload: bytes) -> bytes:
-    header = f"{seq}|{ack}|{rwnd}|{flags}|".encode()
-    return header + payload
+     # Header with placeholder checksum = 0
+     header = f"{seq}|{ack}|{rwnd}|{flags}|0|".encode()
+     temp_packet = header + payload
+
+     # Calculate checksum of entire packet
+     checksum = checksum_calc(temp_packet)
+
+     # Rebuild header with actual checksum
+     header = f"{seq}|{ack}|{rwnd}|{flags}|{checksum}|".encode()
+     final_packet = header + payload
+
+     return final_packet
+
 
 def parse_packet(packet: bytes) -> dict:
-    header, payload = packet.split(b'|', 4)[:4], packet.split(b'|', 4)[4]
-    seq = int(header[0])
-    ack = int(header[1])
-    rwnd = int(header[2])
-    flags = header[3].decode()
-    return {
-        'seq': seq,
-        'ack': ack,
-        'rwnd': rwnd,
-        'flags': flags,
-        'payload': payload
-    }
+     # Parse packet and verify checksum
+     parts = packet.split(b'|', 5)
+
+     if len(parts) < 5:
+         raise ValueError("Malformed packet: not enough fields")
+    
+     try:
+          seq = int(parts[0])
+          ack = int(parts[1])
+          rwnd = int(parts[2])
+          flags = parts[3].decode()
+          checksum = int(parts[4])
+          payload = parts[5] if len(parts) > 5 else b''
+     except (ValueError, IndexError) as e:
+          raise ValueError(f"Malformed packet: {e}")
+     
+     # Verify checksum
+     if not verify_checksum(packet, checksum):
+          raise ValueError("[ERROR] Checksum verification failed - packet corrupted")
+     
+     return {
+          'seq': seq,
+          'ack': ack,
+          'rwnd': rwnd,
+          'flags': flags,
+          'checksum': checksum,
+          'payload': payload
+     }
 
 def handle_handshake(socket, pkt, addr):
      if pkt['flags'] == "SYN":
@@ -97,7 +124,50 @@ def buffer_process():
                          # Release lock before send to avoid deadlock
                          threading.Thread(target=send_window_update, daemon=True).start()
 
-#TODO: implement checksum
+def checksum_calc(data: bytes) -> int:
+     # Caculate simple checksum by summing all bytes
+     checksum = 0
+
+     # Process bytes into pairs
+     for i in range(0, len(data), 2):
+          if i + 1 < len(data):
+               # Combine 2 bytes into 16bit word
+               word = (data[i] << 8) + data[i + 1]
+          else:
+               # Pad odd number of bytes with 0
+               word = data[i] << 8
+          
+          checksum += word
+
+          # Carry around addition
+          checksum = (checksum & 0xFFFF) + (checksum >> 16)
+
+     # One's complement
+     checksum = ~checksum & 0xFFFF
+
+     return checksum
+
+def verify_checksum(data: bytes, expected_checksum: int) -> bool:
+     # Verify packet checksum by recreating packet with checksum = 0
+     # calculating checksum and comparing
+     parts = data.split(b'|', 5)
+     if len(parts) < 5:
+          return False
+     
+     # Rebuild packet w/ checksum = 0
+     no_checksum_header = b'|'.join(parts[:4]) + b'|0|'
+     if len(parts) > 5:
+          no_checksum_pkt = no_checksum_header + parts[5]
+     else:
+          no_checksum_pkt = no_checksum_header
+
+     # Calculate checksum
+     calculated_checksum = checksum_calc(no_checksum_pkt)
+
+     # Compare and return
+     return calculated_checksum == expected_checksum
+
+
 def main():
      serverSocket = socket(AF_INET, SOCK_DGRAM)
      serverSocket.bind((HOST, PORT))
@@ -112,6 +182,10 @@ def main():
      processor_thread.start()
      print("[BACKGROUND] Buffer processor started")
 
+     # Stats
+     pkts_received = 0
+     pkts_corrupted = 0
+
      while True:
           try:
                data, addr = serverSocket.recvfrom(2048)  # receive packet + client address
@@ -119,12 +193,15 @@ def main():
                # No packets received continue
                continue
           
-          ReceiverState.client_addr = addr 
+          ReceiverState.client_addr = addr
+          pkts_received += 1
 
           try:
                pkt = parse_packet(data)
-          except Exception as e:
+          except ValueError as e:
+               pkts_corrupted += 1
                print("Malformed packet, ignoring:", e)
+               print(f"[CHECKSUM] Invalid - dropping packet")
                continue
           
           print("===================================================================")
