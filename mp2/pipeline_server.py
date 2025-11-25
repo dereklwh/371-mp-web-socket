@@ -40,7 +40,8 @@ def make_packet(seq, ack, rwnd, flags, payload: bytes) -> bytes:
 
           # Flip a random bit in payload
           if len(payload) > 0:
-               corrupt_pos = random.randint(0, len(final_packet) - 1)
+               header_len = len(header)
+               corrupt_pos = random.randint(header_len, len(final_packet) - 1)
                packet_list = bytearray(final_packet)
                packet_list[corrupt_pos] ^= 0xFF    # Flip all bits in one byte
                final_packet = bytes(packet_list)
